@@ -1,4 +1,3 @@
-
 import json
 import logging
 import requests
@@ -20,9 +19,9 @@ def main(mytimer: func.TimerRequest) -> None:
 
     logging.info('Python timer trigger function ran at %s', utc_timestamp)
 
-    # Main logic
-    account_name = "XXXXXXXXXX"
-    account_key = "XXXXXXXXXX"
+    # Storage account credentials
+    account_name = "XXXXXXXXXXX"
+    account_key = "XXXXXXXXXXX"
 
     blob_service = BlockBlobService(account_name=account_name, account_key=account_key)
 
@@ -30,8 +29,9 @@ def main(mytimer: func.TimerRequest) -> None:
     members = pd.read_csv(StringIO(blob_service.get_blob_to_text(container_name='oajustice', blob_name='members').content))
     #.drop(['Unnamed: 0'], axis=1)
 
-    keys = {"MCAPIKeyPublic": "XXXXXXXXXX",
-        "   MCAPIKeySecret": "XXXXXXXXXX"}
+    # API credentials
+    keys = {"MCAPIKeyPublic": "XXXXXXXXXXX",
+        "MCAPIKeySecret": "XXXXXXXXXXX"}
 
     r = requests.post(
         'http://apibeta.membercentral.com/v1/authenticate', json=keys)
@@ -44,11 +44,19 @@ def main(mytimer: func.TimerRequest) -> None:
     params = {"count": 10000}
 
     req = requests.get(members_url, json=params, headers=token)
+    
+    '''
+    Query member API, check if entries have been added or updated since last
+    event trigger. If so, make list of member IDs added or updated, make
+    revursive calls to API to get updates and additions, update member data,
+    write out CSV binary, and commit to Azure Blob storage. 
+    '''
 
     # Get linst index of all member URIs
     last_update = pd.to_datetime(extract_values(req.json(), 'datelastupdated'), infer_datetime_format=True)
     now = datetime.now()
 
+    # CHack for updates
     if any(last_update > now.replace(tzinfo=timezone.utc)-timedelta(days=1)):
 
         updates = pd.DataFrame(extract_values(req.json(), 'membernumber'), columns=['member_number'])
@@ -56,6 +64,7 @@ def main(mytimer: func.TimerRequest) -> None:
         # Creats a data frame of member IDs and update timestamps for members with changes
         updates = updates.loc[updates['last_update'] > now.replace(tzinfo=timezone.utc)-timedelta(days=1)]
 
+        # Make API calls to get updates and additions
         member_updates = []
         base_url = 'http://apibeta.membercentral.com/v1/member/'
         for uri in updates['member_number']:
@@ -67,6 +76,7 @@ def main(mytimer: func.TimerRequest) -> None:
                 print(response.text)
                 print(response.status_code)
 
+        # Update data and comit to Blod storage
         member_updates = json_normalize(member_updates)
         member_updates.set_index('membernumber', inplace=True)
         members.set_index(members['membernumber'], inplace=True)
